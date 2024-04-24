@@ -11,7 +11,8 @@ const Tensor = @import("tensor.zig").Tensor;
 const operators = @import("operators.zig");
 
 pub fn exit() void {
-    std.os.exit(1);
+    // std.os.exit(1);
+    unreachable;
 }
 
 pub const Config = packed struct {
@@ -20,7 +21,7 @@ pub const Config = packed struct {
     n_layers: u32 = 1, // number of layers
     n_heads: u32 = 1, // number of query heads
     n_kv_heads: u32 = 1, // number of key/value heads (can be < query heads because of multiquery)
-    vocab_size: u32 = 1, // vocabulary size, usually 256 (byte-level)
+    vocabulary_size: u32 = 1, // vocabulary size, usually 256 (byte-level)
     seq_len: u32 = 1, // max sequence length
 
     fn print(self: Config) void {
@@ -44,19 +45,19 @@ const Block = struct {
     weight3: Tensor(f32, 2), // hidden_dim, dim
 
     pub fn init(allocator: Allocator, config: Config) Block {
-        const rms_att_weight = Tensor(f32, 1).init(allocator, .{config.dim}) catch exit();
-        const rms_ffn_weight = Tensor(f32, 1).init(allocator, .{config.dim}) catch exit();
+        const rms_att_weight = Tensor(f32, 1).init(allocator, .{config.dim}) catch unreachable;
+        const rms_ffn_weight = Tensor(f32, 1).init(allocator, .{config.dim}) catch unreachable;
 
         const head_size = config.dim / config.n_heads;
         const qkv_shape = .{ config.dim, config.n_heads * head_size };
-        const q_weight = Tensor(f32, 2).init(allocator, qkv_shape) catch exit();
-        const k_weight = Tensor(f32, 2).init(allocator, qkv_shape) catch exit();
-        const v_weight = Tensor(f32, 2).init(allocator, qkv_shape) catch exit();
-        const out_weight = Tensor(f32, 2).init(allocator, qkv_shape) catch exit();
+        const q_weight = Tensor(f32, 2).init(allocator, qkv_shape) catch unreachable;
+        const k_weight = Tensor(f32, 2).init(allocator, qkv_shape) catch unreachable;
+        const v_weight = Tensor(f32, 2).init(allocator, qkv_shape) catch unreachable;
+        const out_weight = Tensor(f32, 2).init(allocator, qkv_shape) catch unreachable;
 
-        const weight1 = Tensor(f32, 2).init(allocator, .{ config.hidden_dim, config.dim }) catch exit();
-        const weight2 = Tensor(f32, 2).init(allocator, .{ config.dim, config.hidden_dim }) catch exit();
-        const weight3 = Tensor(f32, 2).init(allocator, .{ config.hidden_dim, config.dim }) catch exit();
+        const weight1 = Tensor(f32, 2).init(allocator, .{ config.hidden_dim, config.dim }) catch unreachable;
+        const weight2 = Tensor(f32, 2).init(allocator, .{ config.dim, config.hidden_dim }) catch unreachable;
+        const weight3 = Tensor(f32, 2).init(allocator, .{ config.hidden_dim, config.dim }) catch unreachable;
 
         return Block{
             .rms_att_weight = rms_att_weight,
@@ -118,7 +119,7 @@ const State = struct {
 pub const Transformer = struct {
     config: Config,
     state: *State = undefined,
-    token_embedding_table: ArrayList(Tensor(f32, 1)), // vocab_size * (dim)
+    token_dictionary: ArrayList(Tensor(f32, 1)), // vocab_size * (dim)
     blocks: ArrayList(Block), // N number of blocks repeated
     rms_final_weight: Tensor(f32, 1), //(dim,)
 
@@ -127,17 +128,17 @@ pub const Transformer = struct {
 
         return Transformer{
             .config = config,
-            .token_embedding_table = ArrayList(Tensor(f32, 1)).init(allocator),
+            .token_dictionary = ArrayList(Tensor(f32, 1)).init(allocator),
             .blocks = ArrayList(Block).init(allocator),
             .rms_final_weight = rms_final_weight,
         };
     }
 
     pub fn deinit(self: *Transformer) void {
-        for (self.token_embedding_table) |embediing| {
+        for (self.token_dictionary) |embediing| {
             embediing.deinit();
         }
-        self.token_embedding_table.deinit();
+        self.token_dictionary.deinit();
 
         for (self.blocks) |block| {
             block.deinit();
@@ -147,7 +148,7 @@ pub const Transformer = struct {
     }
 
     pub fn forward(self: *Transformer, token: i32, position: i32) void {
-        const embedding = self.token_embedding_table.get(token);
+        const embedding = self.token_dictionary.get(token);
         const state: *State = self.state;
         state.x.copyFrom(embedding);
 
@@ -168,6 +169,15 @@ pub const Transformer = struct {
 
         }
     }
+
+    pub fn format(
+        self: Transformer,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("\nTransformer with config: {any} \n", .{self.config});
+    }
 };
 
 pub fn loadModel(allocator: Allocator, path: []const u8) !Transformer {
@@ -184,7 +194,21 @@ pub fn loadModel(allocator: Allocator, path: []const u8) !Transformer {
     // config.print();
     std.debug.print("config: {any}", .{config});
 
-    const transformer = Transformer.init(allocator, config);
+    var transformer = Transformer.init(allocator, config);
+
+    // read tokens;
+
+    for (0..transformer.config.n_layers) |_| {
+        const t = Tensor(f32, 1).init(allocator, .{config.dim}) catch unreachable;
+        // @memcpy(t.data, noalias source)
+        const ptr = std.mem.sliceAsBytes(t.data);
+        _ = reader.read(ptr) catch unreachable;
+        std.debug.print("sss: {}", .{t.data[1]});
+
+        const block = Block.init(allocator, config);
+
+        try transformer.blocks.append(block);
+    }
 
     return transformer;
 }
@@ -195,7 +219,7 @@ test "init" {
     defer b.deinit();
     std.debug.print("b: {any}", .{b});
 
-    var path = "model.bin";
+    const path = "model.bin";
     const transformer = loadModel(std.testing.allocator, path);
     std.debug.print("transformer: {any}", .{transformer});
 }

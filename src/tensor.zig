@@ -68,6 +68,15 @@ pub fn Tensor(comptime T: type, comptime D: u8) type {
         pub fn print(self: *const Self) void {
             test_print("\n shape: {any}, dimensions: {any}", .{ self.shape, self.dimensions });
         }
+
+        pub fn format(
+            self: Self,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            try writer.print("Tensor shape: {any}, dimensions: {any}", .{ self.shape, self.dimensions });
+        }
     };
 }
 
